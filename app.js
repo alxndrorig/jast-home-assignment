@@ -1,9 +1,10 @@
 import express, { json } from 'express';
 import aggregateResults from './aggregator.js';
-import path, { join, dirname } from 'path';
+import { join, dirname } from 'path';
 import { EventEmitter } from 'node:events';
 import { isMainThread, Worker } from 'node:worker_threads';
 import { fileURLToPath } from 'url';
+import engines from './engines.js';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -28,9 +29,9 @@ app.listen(PORT, () => {
 });
 
 async function initCrawler(callback, keywords, pages) {
-    const test = new EventEmitter();
+    const emitter = new EventEmitter();
 
-    test.on('finished', callback);
+    emitter.on('finished', callback);
 
     const workerResults = [];
     let workerCount = 0;
@@ -40,12 +41,15 @@ async function initCrawler(callback, keywords, pages) {
     const currentDir = dirname(currentModulePath);
 
     if (isMainThread) {
-        Object.values(engines).forEach((func) => {
+        Object.keys(engines).forEach((engine) => {
             for(let page = 0; page < pages; page++) {
                 for(let keywordIndex = 0; keywordIndex < keywords.length; keywordIndex++) {
+                    debugger;
                     const worker = new Worker(join(currentDir, 'worker.js'), {
                         workerData: {
-                            link: func(keywords[keywordIndex], page)
+                            page,
+                            engine,
+                            keyword: keywords[keywordIndex],
                         }
                     })
                     workerCount++;
@@ -55,36 +59,12 @@ async function initCrawler(callback, keywords, pages) {
                     worker.on('exit', () => {
                         workerCount--;
                         if (workerCount === 0) {
-                            test.emit('finished', workerResults);
+                            emitter.emit('finished', workerResults);
                         }
                     })
                 }
 
             }
         })
-    }
-}
-
-const engines = {
-    'google': function(keyword, page) {
-        return {
-            url: `https://www.google.com/search?q=${encodeURIComponent(keyword)}&start=${page}`,
-            keyword,
-            engineName: 'google'
-        };
-    },
-    'yahoo': function(keyword, page) {
-        return {
-            url: `https://search.yahoo.com/search?p=${encodeURIComponent(keyword)}&b=${page * 7 + 1}&pz=7`,
-            keyword,
-            engineName: 'yahoo'
-        }
-    },
-    'bing': function(keyword, page) {
-        return {
-            url: `https://www.bing.com/search?q=${encodeURIComponent(keyword)}&first=${page * 10 + 1}`,
-            keyword,
-            engineName: 'bing',
-        }
     }
 }
